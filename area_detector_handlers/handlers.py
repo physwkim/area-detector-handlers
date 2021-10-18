@@ -111,49 +111,32 @@ class HDF5DatasetSliceHandlerPureNumpy(HandlerBase):
         self._fpp = frame_per_point
         self._filename = filename
         self._key = key
-        self._file = None
         self._dataset = None
-        self._data_objects = {}
         self.open()
 
     def get_file_list(self, datum_kwarg_gen):
         return [self._filename]
 
     def __call__(self, point_number):
-        # Don't read out the dataset until it is requested for the first time.
-        if self._dataset is None:
-            try:
-                self._dataset = self._file[self._key]
-            except KeyError as error:
-                raise IOError(H5PY_KEYERROR_IOERROR_MSG) from error
         start = point_number * self._fpp
         stop = (point_number + 1) * self._fpp
         return self._dataset[start:stop]
 
     def open(self):
-        if self._file:
-            return
-
-        self._file = h5py.File(self._filename, "r")
-
-    def close(self):
-        super().close()
-        self._file.close()
-        self._file = None
+        with h5py.File(self._filename, 'r', libver='latest') as f:
+            try:
+                self._dataset = f[self._key][()]
+            except KeyError as error:
+                raise IOError(H5PY_KEYERROR_IOERROR_MSG) from error
 
 
 class HDF5DatasetSliceHandler(HDF5DatasetSliceHandlerPureNumpy):
     return_type = {'delayed': True}
 
     def __call__(self, point_number):
-        # Don't read out the dataset until it is requested for the first time.
-        if self._dataset is None:
-            try:
-                self._dataset = dask.array.from_array(self._file[self._key])
-            except KeyError as error:
-                raise IOError(H5PY_KEYERROR_IOERROR_MSG) from error
         start = point_number * self._fpp
         stop = (point_number + 1) * self._fpp
+
         if not len(self._dataset[start:stop]):
             raise ValueError('Invalid slicing bounds. Handler is slicing beyond size of dataset')
         return self._dataset[start:stop]
@@ -201,16 +184,14 @@ class AreaDetectorHDF5SWMRHandler(AreaDetectorHDF5Handler):
     specs = {"AD_HDF5_SWMR"} | HDF5DatasetSliceHandler.specs
 
     def open(self):
-        if self._file:
-            return
-
-        self._file = h5py.File(self._filename, "r", swmr=True)
+        with h5py.File(self._filename, 'r', swmr=True, libver='latest') as f:
+            try:
+                self._dataset = f[self._key][()]
+            except KeyError as error:
+                raise IOError(H5PY_KEYERROR_IOERROR_MSG) from error
 
     def __call__(self, point_number):
-        if self._dataset is not None:
-            self._dataset.id.refresh()
         rtn = super().__call__(point_number)
-
         return rtn
 
 
@@ -236,7 +217,6 @@ class AreaDetectorHDF5TimestampHandler(HandlerBase):
             "/entry/instrument/NDAttributes/NDArrayEpicsTSSec",
             "/entry/instrument/NDAttributes/NDArrayEpicsTSnSec",
         ]
-        self._file = None
         self._dataset1 = None
         self._dataset2 = None
         self.open()
@@ -245,31 +225,18 @@ class AreaDetectorHDF5TimestampHandler(HandlerBase):
         return [self._filename]
 
     def __call__(self, point_number):
-        # Don't read out the dataset until it is requested for the first time.
-        if not self._dataset1:
-            try:
-                self._dataset1 = self._file[self._key[0]]
-            except KeyError as error:
-                raise IOError(H5PY_KEYERROR_IOERROR_MSG) from error
-        if not self._dataset2:
-            try:
-                self._dataset2 = self._file[self._key[1]]
-            except KeyError as error:
-                raise IOError(H5PY_KEYERROR_IOERROR_MSG) from error
         start, stop = point_number * self._fpp, (point_number + 1) * self._fpp
         rtn = self._dataset1[start:stop].squeeze()
         rtn = rtn + (self._dataset2[start:stop].squeeze() * 1e-9)
         return rtn
 
     def open(self):
-        if self._file:
-            return
-        self._file = h5py.File(self._filename, "r")
-
-    def close(self):
-        super().close()
-        self._file.close()
-        self._file = None
+        with h5py.File(self._filename, 'r', libver='latest') as f:
+            try:
+                self._dataset1 = f[self._key[0]][()]
+                self._dataset2 = f[self._key[1]][()]
+            except KeyError as error:
+                raise IOError(H5PY_KEYERROR_IOERROR_MSG) from error
 
 
 class AreaDetectorHDF5SWMRTimestampHandler(AreaDetectorHDF5TimestampHandler):
@@ -289,13 +256,14 @@ class AreaDetectorHDF5SWMRTimestampHandler(AreaDetectorHDF5TimestampHandler):
     specs = {"AD_HDF5_SWMR_TS"} | HandlerBase.specs
 
     def open(self):
-        if self._file:
-            return
-        self._file = h5py.File(self._filename, "r", swmr=True)
+        with h5py.File(self._filename, 'r', swmr=True, libver='latest') as f:
+            try:
+                self._dataset1 = f[self._key[0]][()]
+                self._dataset2 = f[self._key[1]][()]
+            except KeyError as error:
+                raise IOError(H5PY_KEYERROR_IOERROR_MSG) from error
 
     def __call__(self, point_number):
-        if (self._dataset1 is not None) and (self._dataset2 is not None):
-            self._dataset.id.refresh()
         rtn = super().__call__(point_number)
         return rtn
 
